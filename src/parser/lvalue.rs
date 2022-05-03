@@ -6,7 +6,7 @@ use crate::parser::expr::{Expr, ExprMeta};
 
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub enum LVMod {
+pub enum LValueMod {
     LocalAssign,
     NonLocalAssign,
     DeclImmutable,
@@ -16,7 +16,7 @@ pub enum LVMod {
 #[derive(Debug, Clone)]
 pub struct LValueExpr {
     pub lvalue: LValue,
-    pub modifier: LVMod,
+    pub modifier: LValueMod,
 }
 
 #[derive(Debug, Clone)]

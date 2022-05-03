@@ -22,7 +22,7 @@ pub use errors::{ParserError, ParseResult};
 use expr::{ExprMeta, Expr, ExprBlock, ConditionalBranch};
 use stmt::{StmtMeta, StmtList, Stmt, Label, ControlFlow};
 use primary::{Primary, Atom, AccessItem};
-use lvalue::{Assignment, LValue};
+use lvalue::{LValue, LValueMod, LValueExpr, Assignment};
 use operator::{UnaryOp, BinaryOp, Precedence, PRECEDENCE_START, PRECEDENCE_END};
 use fundefs::{FunctionDef, SignatureDef, ParamDef, DefaultDef};
 use errors::{ErrorKind, ErrorContext, ContextTag};
@@ -1138,11 +1138,9 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
                 
                 // subscript ::= "[" expression "]" ;
                 Token::OpenSquare => items.push(self.parse_index_access(ctx)?),
-                
-                
+                                
                 // invocation ::= "(" ")" | "(" argument ( "," argument )* ")" ; 
                 // argument ::= expression ( "..." )? ;  (* "..." is for argument unpacking syntax *)
-                
                 // invocations are not allowed to be on a separate line from the invocation receiver
                 Token::OpenParen if !next.newline => items.push(self.parse_invocation(ctx)?),
                 
@@ -1366,8 +1364,107 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
 
     /*** LValue Parsing ***/
 
-    fn parse_lvalue_expr(&mut self, ctx: &mut ErrorContext) -> ParseResult<LValue> {
+    fn parse_lvalue_expr(&mut self, ctx: &mut ErrorContext) -> ParseResult<LValueExpr> {
+        ctx.push(ContextTag::LValueExpr);
+
+        let next = self.peek()?;
+        ctx.set_start(&next);
+
+        let modifier = match next.token {
+            Token::Let => Some(LValueMod::DeclImmutable),
+            Token::Var => Some(LValueMod::DeclMutable),
+            Token::NonLocal => Some(LValueMod::NonLocalAssign),
+            _ => None,
+        };
+
+        if modifier.is_some() {
+            let next = self.advance().unwrap(); // consume modifier token
+            ctx.set_end(&next);
+        }
+        let modifier = modifier.unwrap_or(LValueMod::LocalAssign);
+
+
+        
+
+
+
         unimplemented!()
     }
     
+    fn parse_lvalue(&mut self, ctx: &mut ErrorContext) -> ParseResult<LValue> {
+        // parse lvalue
+        let mut first_lvalue = self.parse_lvalue_primary(ctx)?;
+
+        // check for tuple constructor
+        let mut tuple_lvalues = Vec::new();
+        loop {
+            let next = self.peek()?;
+            if !matches!(next.token, Token::Comma) {
+                break;
+            }
+            
+            if let Some(first_lvalue) = first_lvalue.take() {
+                // retroactivly get debug symbol
+                let frame = ctx.pop();
+                let symbol = frame.as_debug_symbol().unwrap();
+                tuple_lvalues.push(ExprMeta::new(first_expr, symbol));
+                
+                ctx.push_continuation(ContextTag::TupleCtor, Some(frame)); // enter the tuple context
+            }
+            
+            ctx.set_end(&self.advance().unwrap()); // consume comma
+            
+            let next = self.peek()?;
+            if matches!(next.token, Token::CloseParen) {
+                break;
+            }
+            
+            ctx.push(ContextTag::ExprMeta);
+            let next_expr = self.parse_binop_expr(ctx)?;
+            let symbol = ctx.frame().as_debug_symbol().unwrap();
+            ctx.pop_extend();
+            
+            tuple_lvalues.push(ExprMeta::new(next_expr, symbol));
+        }
+        
+        ctx.pop_extend();
+    }
+
+    fn parse_lvalue_primary(&mut self, ctx: &mut ErrorContext) -> ParseResult<LValue> {
+        if let Token::OpenParen = self.peek()?.token {
+            return self.parse_lvalue_group(ctx);
+        }
+
+        let expr = self.parse_primary_expr(ctx)?;
+        LValue::try_from(expr)
+            .map_err(|_| ParserError::from("can't assign to this"))
+    }
+
+    fn parse_lvalue_group(&mut self, ctx: &mut ErrorContext) -> ParseResult<LValue> {
+        ctx.push(ContextTag::Group);
+        
+        let next = self.advance().unwrap(); // consume the "("
+        ctx.set_start(&next);
+        debug_assert!(matches!(next.token, Token::OpenParen));
+        
+        // Check for the empty tuple
+        let next = self.peek()?;
+        if let Token::CloseParen = next.token {
+            return Err(ParserError::from("can't assign to this"));
+        }
+        
+        let lvalue = self.parse_lvalue_primary(ctx)?;
+        
+        // Consume and check closing paren
+        let next = self.advance()?;
+        ctx.set_end(&next);
+        if !matches!(next.token, Token::CloseParen) {
+            return Err("missing closing \")\"".into());
+        }
+        
+        ctx.pop_extend();
+        Ok(lvalue)
+    }
+
+
 }
