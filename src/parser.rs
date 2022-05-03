@@ -2,7 +2,7 @@ use std::collections::VecDeque;
 
 use log::debug;
 
-use crate::language::InternSymbol;
+use crate::language::{InternSymbol, Access};
 use crate::lexer::{TokenMeta, Token, LexerError};
 use crate::runtime::strings::StringInterner;
 use crate::debug::{SourceError, TokenIndex};
@@ -22,7 +22,7 @@ pub use errors::{ParserError, ParseResult};
 use expr::{ExprMeta, Expr, ExprBlock, ConditionalBranch};
 use stmt::{StmtMeta, StmtList, Stmt, Label, ControlFlow};
 use primary::{Primary, Atom, AccessItem};
-use lvalue::{Assignment, LValue, Declaration, DeclType};
+use lvalue::{Assignment, LValue};
 use operator::{UnaryOp, BinaryOp, Precedence, PRECEDENCE_START, PRECEDENCE_END};
 use fundefs::{FunctionDef, SignatureDef, ParamDef, DefaultDef};
 use errors::{ErrorKind, ErrorContext, ContextTag};
@@ -471,10 +471,11 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
     
     // the top of the recursive descent stack for expressions
     fn parse_expr_variant(&mut self, ctx: &mut ErrorContext) -> ParseResult<Expr> {
-        match self.peek()?.token {
-            Token::Var | Token::Let => self.parse_declaration_expr(ctx),
-            _ => self.parse_assignment_expr(ctx)
-        }
+        todo!()
+        // match self.peek()?.token {
+        //     Token::Var | Token::Let => self.parse_declaration_expr(ctx),
+        //     _ => self.parse_assignment_expr(ctx)
+        // }
     }
     
     /*
@@ -523,8 +524,9 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
             
             let nonlocal = matches!(optional_token.map(|tok| tok.token), Some(Token::NonLocal));
             
-            let assign = Box::new(Assignment { lhs, op, rhs, nonlocal });
-            return Ok(Expr::Assignment(assign));
+            todo!()
+            // let assign = Box::new(Assignment { lhs, op, rhs, nonlocal });
+            // return Ok(Expr::Assignment(assign));
             
         } else if optional_token.is_some() {
             return Err("expected an assignment expression after \"nonlocal\"".into())
@@ -533,6 +535,7 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
         Ok(expr)
     }
     
+    /*
     /*
         declaration_expression ::= ( "let" | "var" ) lvalue_expr_annotated "=" expression ;
     */
@@ -571,7 +574,7 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
         
         let decl = Box::new(Declaration { decl, lhs, init });
         Ok(Expr::Declaration(decl))
-    }
+    }*/
     
     fn is_lvalue_valid_for_decl(lvalue: &LValue) -> bool {
         match lvalue {
@@ -896,13 +899,14 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
                 function_def.signature.name.replace(*name);
             }
             
-            let function_decl = Declaration {
-                decl: DeclType::Immutable,
-                lhs: lvalue,
-                init: Expr::FunctionDef(function_def),
-            };
+            // let function_decl = Declaration {
+            //     decl: DeclType::Immutable,
+            //     lhs: lvalue,
+            //     init: Expr::FunctionDef(function_def),
+            // };
 
-            Ok(Expr::Declaration(Box::new(function_decl)))
+            // Ok(Expr::Declaration(Box::new(function_decl)))
+            todo!()
         } else {
 
             Ok(Expr::FunctionDef(function_def))
@@ -989,19 +993,17 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
             
             // mutability modifier
             
-            let decl = match next.token {
-                Token::Var => Some(DeclType::Mutable),
-                Token::Let => Some(DeclType::Immutable),
+            let mode = match next.token {
+                Token::Var => Some(Access::ReadWrite),
+                Token::Let => Some(Access::ReadOnly),
                 Token::Identifier(..) => None,
                 _ => return Err("invalid parameter".into()),
             };
             
-            if decl.is_some() {
+            if mode.is_some() {
                 ctx.set_end(&self.advance().unwrap());
             }
-            
-            let decl = decl.unwrap_or(DeclType::Immutable);
-            
+                        
             // name
             
             let next = self.advance()?;
@@ -1039,6 +1041,8 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
             
             // expect either a comma "," or the closing ")"
             let next = self.peek()?;
+
+            let mode = mode.unwrap_or(Access::ReadOnly);
             match next.token {
                 // variadic parameter
                 Token::Comma if is_variadic => {
@@ -1047,18 +1051,18 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
                 
                 Token::CloseParen if is_variadic => {
                     debug_assert!(default_value.is_none());
-                    variadic.replace(ParamDef { name, decl });
+                    variadic.replace(ParamDef { name, mode });
                 },
                 
                 // normal parameter
                 Token::Comma | Token::CloseParen if !is_variadic => {
                     if let Some(default_expr) = default_value {
-                        default.push(DefaultDef { name, decl, default: default_expr });
+                        default.push(DefaultDef { name, mode, default: default_expr });
                     } else {
                         if !default.is_empty() {
                             return Err("cannot have a non-default parameter after a default parameter".into());
                         }
-                        required.push(ParamDef { name, decl });
+                        required.push(ParamDef { name, mode });
                     }
                 },
                 
@@ -1358,6 +1362,12 @@ impl<'h, I> Parser<'h, I> where I: Iterator<Item=Result<TokenMeta, LexerError>> 
         
         ctx.pop_extend();
         Ok(Atom::Group(Box::new(expr)))
+    }
+
+    /*** LValue Parsing ***/
+
+    fn parse_lvalue_expr(&mut self, ctx: &mut ErrorContext) -> ParseResult<LValue> {
+        unimplemented!()
     }
     
 }
